@@ -1,0 +1,2 @@
+# Pre-written fallback response for the transformer vs state-space model demo task,
+# used if NIM credits are exhausted during a live demo.
