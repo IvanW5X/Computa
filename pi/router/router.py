@@ -1,80 +1,39 @@
 #!/usr/bin/env python3
 # Target path on the Pi: /home/yelopi/router/router.py
 #
-# Hybrid AI gateway router for Raspberry Pi 5.
-#
-# Flow (unchanged from the existing service):
-#   POST /chat/completions on :11435
-#     -> qwen2:0.5b classifies the user message as SIMPLE or COMPLEX
-#        (keyword pre-filter first, then LLM if no keyword hit)
-#        SIMPLE  -> nemotron-mini:4b via local Ollama
-#        COMPLEX -> NVIDIA NIM (nvidia/nemotron-3-super-120b-a12b)
-#     -> returns OpenAI-shaped chat completion JSON
-#     -> stdout still emits "[router] SIMPLE: ..." / "[router] COMPLEX: ..."
-#
-# What is NEW in this revision: SQLite logging to
-# /home/yelopi/dashboard/requests.db. Logging is best-effort -- a DB write
-# error never breaks a reply to the bot. Schema lives in
-# /home/yelopi/dashboard/schema.sql; init once with sqlite3 < schema.sql.
+# Identical to the existing /home/yelopi/router/router.py except for SQLite
+# logging into /home/yelopi/dashboard/requests.db. The classifier, the
+# keyword list, the Ollama /api/generate call, the NVIDIA NIM call, the
+# SSE streaming response, the routes, and the listen socket are all
+# unchanged.
 
-from __future__ import annotations
-
+import json
 import os
-import re
 import sqlite3
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, request, Response
+from dotenv import load_dotenv
 
-# ---------- Config ---------------------------------------------------------
+load_dotenv("/home/yelopi/router/.env")
 
-LISTEN_HOST = "0.0.0.0"
-LISTEN_PORT = 11435
+app = Flask(__name__)
 
-OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://127.0.0.1:11434")
+OLLAMA = "http://127.0.0.1:11434"
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+NVIDIA_MODEL = "nvidia/nemotron-3-super-120b-a12b"
+LOCAL_MODEL = "nemotron-mini:4b"
 
-CLASSIFIER_MODEL = "qwen2:0.5b"
-LOCAL_MODEL      = "nemotron-mini:4b"
-NIM_MODEL        = "nvidia/nemotron-3-super-120b-a12b"
-
-NIM_URL          = "https://integrate.api.nvidia.com/v1/chat/completions"
-NIM_TIMEOUT_S    = 30.0
-LOCAL_TIMEOUT_S  = 300.0
-CLASSIFY_TIMEOUT = 15.0
-
-DB_PATH = os.environ.get("ROUTER_DB_PATH", "/home/yelopi/dashboard/requests.db")
-
-# Keyword pre-filter: things that are obviously SIMPLE without burning a
-# qwen2 swap. Order matters; first match wins.
-SIMPLE_PATTERNS = [
-    re.compile(r"^\s*(hi|hey|hello|yo|sup|hola|howdy|gm|good\s+morning|good\s+night)\b", re.I),
-    re.compile(r"^\s*(thanks|thank\s+you|thx|ty|cool|nice|great|ok|okay|got\s+it|cheers)\b", re.I),
-    re.compile(r"^\s*(who|what|when|where)\s+(is|are|was|were)\s+\S{1,40}\??\s*$", re.I),
-    re.compile(r"^\s*(define|explain)\s+\S{1,30}\??\s*$", re.I),
-    re.compile(r"^\s*what\s+(is|are)\s+\d+\s*[\+\-\*x×\/÷]\s*\d+\??\s*$", re.I),
-    re.compile(r"^\s*say\s+(hi|hello)\b", re.I),
-]
-
-# Keyword pre-filter for things that are obviously COMPLEX -- skip the
-# classifier and go straight to cloud.
-COMPLEX_PATTERNS = [
-    re.compile(r"\b(write|generate|draft)\s+(a\s+)?(essay|report|article|story|poem|paper)\b", re.I),
-    re.compile(r"\b(prove|derive|analy[sz]e|architect|refactor)\b", re.I),
-    re.compile(r"\b(step[\s\-]?by[\s\-]?step|in\s+detail|comprehensive)\b", re.I),
-]
-
-# ---------- DB layer -------------------------------------------------------
-
-_db_init_done = False
+DB_PATH = os.getenv("ROUTER_DB_PATH", "/home/yelopi/dashboard/requests.db")
 
 
-def _db_connect_rw() -> sqlite3.Connection:
-    """Open the requests.db for write. Short timeout so a transient lock
-    (the dashboard reading) does not stall the bot's reply."""
+# ---------- SQLite logging (best-effort; never raises into chat()) --------
+
+def _db_connect():
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=2.0, isolation_level=None)
     conn.execute("PRAGMA journal_mode = WAL")
@@ -82,16 +41,11 @@ def _db_connect_rw() -> sqlite3.Connection:
     return conn
 
 
-def _db_init() -> None:
-    """Create the table if missing. Cheap; called lazily on first log."""
-    global _db_init_done
-    if _db_init_done:
-        return
+def db_init():
     try:
-        conn = _db_connect_rw()
+        conn = _db_connect()
         try:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS requests (
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp     TEXT    NOT NULL,
@@ -100,26 +54,18 @@ def _db_init() -> None:
                     user_message  TEXT    NOT NULL,
                     latency_ms    INTEGER NOT NULL DEFAULT 0
                 )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_requests_id_desc ON requests (id DESC)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_requests_route ON requests (route)"
-            )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_id_desc ON requests (id DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_route   ON requests (route)")
         finally:
             conn.close()
-        _db_init_done = True
     except Exception as e:
-        sys.stderr.write(f"[router] db init failed (continuing without logging): {e}\n")
+        print(f"[router] db_init failed: {e}", flush=True)
 
 
-def db_log(route: str, model: str, user_message: str, latency_ms: int) -> None:
-    """Best-effort log. NEVER raises into the request handler."""
-    _db_init()
+def db_log(route, model, user_message, latency_ms):
     try:
-        conn = _db_connect_rw()
+        conn = _db_connect()
         try:
             conn.execute(
                 "INSERT INTO requests (timestamp, route, model, user_message, latency_ms) "
@@ -135,212 +81,119 @@ def db_log(route: str, model: str, user_message: str, latency_ms: int) -> None:
         finally:
             conn.close()
     except sqlite3.OperationalError as e:
-        # Most common: "database is locked" if the dashboard is mid-read on
-        # microSD. Drop the row rather than block the reply.
-        sys.stderr.write(f"[router] db_log skipped (locked): {e}\n")
+        # Most common: "database is locked" while the dashboard is reading.
+        # Drop the row rather than block the bot reply.
+        print(f"[router] db_log skipped (locked): {e}", flush=True)
     except Exception as e:
-        sys.stderr.write(f"[router] db_log failed: {e}\n")
+        print(f"[router] db_log failed: {e}", flush=True)
 
 
-# ---------- Ollama / NIM clients ------------------------------------------
+# ---------- Original logic, unchanged -------------------------------------
 
-def ollama_chat(model: str, messages: list[dict], timeout: float,
-                temperature: float = 0.4, num_predict: int = 512) -> str:
-    """Call Ollama's /api/chat. Returns the assistant content as a string."""
-    body = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "options": {"temperature": temperature, "num_predict": num_predict},
-        "keep_alive": "30s",
-    }
-    r = requests.post(f"{OLLAMA_BASE}/api/chat", json=body, timeout=timeout)
-    r.raise_for_status()
-    data = r.json()
-    return ((data.get("message") or {}).get("content") or "").strip()
+def extract_text(content):
+    if isinstance(content, list):
+        return " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return content or ""
 
-
-def call_nim(user_message: str) -> str:
-    api_key = (os.environ.get("NVIDIA_API_KEY") or "").strip()
-    if not api_key:
-        raise RuntimeError("NVIDIA_API_KEY is not set in /home/yelopi/router/.env")
-
-    body = {
-        "model": NIM_MODEL,
-        "messages": [{"role": "user", "content": user_message}],
-        "max_tokens": 1024,
-        "temperature": 0.4,
-        "stream": False,
-    }
-    r = requests.post(
-        NIM_URL,
-        json=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        timeout=NIM_TIMEOUT_S,
-    )
-    r.raise_for_status()
-    data = r.json()
-    return data["choices"][0]["message"]["content"]
-
-
-# ---------- Classification -------------------------------------------------
-
-def _keyword_verdict(message: str) -> str | None:
-    """Return 'SIMPLE' / 'COMPLEX' if a keyword pattern hits, else None."""
-    for pat in SIMPLE_PATTERNS:
-        if pat.search(message):
-            return "SIMPLE"
-    for pat in COMPLEX_PATTERNS:
-        if pat.search(message):
-            return "COMPLEX"
-    return None
-
-
-def classify(message: str) -> str:
-    """SIMPLE or COMPLEX. Anything weird -> COMPLEX (safe escalate)."""
-    kw = _keyword_verdict(message)
-    if kw:
-        return kw
-
-    prompt = (
-        "Classify this user message as SIMPLE or COMPLEX. "
-        "SIMPLE = greetings, basic facts, short definitions, arithmetic, single-step questions. "
-        "COMPLEX = multi-step reasoning, synthesis, deep domain expertise, long-form output. "
-        "Reply with EXACTLY one word: SIMPLE or COMPLEX. "
-        f"Message: {message}"
-    )
+def classify(message):
+    message = extract_text(message)
+    complex_keywords = ["write", "implement", "create", "build", "code", "class", "function", "algorithm", "explain", "analyze", "compare", "design", "debug", "fix", "optimize"]
+    msg_lower = message.lower()
+    if any(k in msg_lower for k in complex_keywords):
+        return "COMPLEX"
     try:
-        raw = ollama_chat(
-            CLASSIFIER_MODEL,
-            [{"role": "user", "content": prompt}],
-            timeout=CLASSIFY_TIMEOUT,
-            temperature=0.0,
-            num_predict=4,
-        )
-    except Exception as e:
-        sys.stderr.write(f"[router] classify failed, defaulting COMPLEX: {e}\n")
+        r = requests.post(f"{OLLAMA}/api/generate", json={
+            "model": "qwen2:0.5b",
+            "prompt": f"You are a classifier. Reply with ONLY the word SIMPLE or COMPLEX. SIMPLE = greetings, math, short factual questions. COMPLEX = coding, writing, analysis, explanations. Message: {message}",
+            "stream": False
+        }, timeout=30)
+        result = r.json().get("response", "COMPLEX").strip().upper()
+        return "SIMPLE" if "SIMPLE" in result else "COMPLEX"
+    except:
         return "COMPLEX"
 
-    head = (raw or "").strip().upper().split()
-    if not head:
-        return "COMPLEX"
-    token = head[0].strip(".,:;!?\"'()[]{}").upper()
-    return "SIMPLE" if token == "SIMPLE" else "COMPLEX"
+def ask_local(messages, _trace=None):
+    prompt = extract_text(messages[-1]["content"]) if messages else ""
+    r = requests.post(f"{OLLAMA}/api/generate", json={
+        "model": "nemotron-mini:4b",
+        "prompt": prompt,
+        "stream": False
+    }, timeout=120)
+    result = r.json().get("response", "")
+    if not result.strip():
+        if _trace is not None:
+            _trace["fell_back"] = True
+        return ask_nvidia(messages)
+    return result
 
+def ask_nvidia(messages):
+    clean = [{"role": m["role"], "content": extract_text(m["content"])} for m in messages]
+    r = requests.post(NVIDIA_URL, json={
+        "model": NVIDIA_MODEL,
+        "messages": clean,
+        "max_tokens": 1024
+    }, headers={
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Content-Type": "application/json"
+    }, timeout=30)
+    return r.json()["choices"][0]["message"]["content"]
 
-# ---------- Handlers -------------------------------------------------------
-
-def handle_simple(message: str) -> str:
-    return ollama_chat(
-        LOCAL_MODEL,
-        [{"role": "user", "content": message}],
-        timeout=LOCAL_TIMEOUT_S,
-        temperature=0.4,
-        num_predict=512,
-    ) or "_(local model returned empty)_"
-
-
-def handle_complex(message: str) -> str:
-    return call_nim(message)
-
-
-def extract_user_text(messages: list[dict]) -> str:
-    """Collapse the OpenAI messages array into a single user-side string,
-    skipping system prompts. Mirrors what OpenClaw sends."""
-    parts: list[str] = []
-    for m in messages or []:
-        if not isinstance(m, dict) or m.get("role") == "system":
-            continue
-        content = m.get("content")
-        if isinstance(content, str):
-            parts.append(content)
-        elif isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and isinstance(block.get("text"), str):
-                    parts.append(block["text"])
-    return "\n".join(p for p in parts if p).strip()
-
-
-# ---------- Flask app ------------------------------------------------------
-
-app = Flask(__name__)
-
-
-@app.route("/healthz", methods=["GET"])
-@app.route("/health",  methods=["GET"])
-def healthz():
-    return jsonify({"ok": True}), 200
-
-
-@app.route("/chat/completions", methods=["POST"])
-def chat_completions():
-    started = time.monotonic()
-    payload = request.get_json(silent=True) or {}
-    user_text = extract_user_text(payload.get("messages") or [])
-
-    if not user_text:
-        return jsonify({"error": {"message": "no user message"}}), 400
-
-    verdict = classify(user_text)
-
-    if verdict == "SIMPLE":
-        route_label = "local"
-        model_id    = LOCAL_MODEL
-        try:
-            answer = handle_simple(user_text)
-        except Exception as e:
-            sys.stderr.write(f"[router] local generate failed: {e}\n")
-            answer = "Sorry -- the local model is not reachable. Please retry."
-        print(f"[router] SIMPLE: {user_text[:120]}", flush=True)
-    else:
-        route_label = "cloud"
-        model_id    = NIM_MODEL
-        try:
-            answer = handle_complex(user_text)
-        except Exception as e:
-            sys.stderr.write(f"[router] NIM call failed, falling back to local: {e}\n")
-            try:
-                answer = handle_simple(user_text) + (
-                    "\n\n_(cloud Nemotron 120B unavailable -- answered locally)_"
-                )
-            except Exception as e2:
-                sys.stderr.write(f"[router] local fallback also failed: {e2}\n")
-                answer = "The cloud and local models are both unavailable. Please retry shortly."
-            route_label = "local"
-            model_id    = LOCAL_MODEL
-        print(f"[router] COMPLEX: {user_text[:120]}", flush=True)
-
-    latency_ms = int((time.monotonic() - started) * 1000)
-
-    db_log(route_label, model_id, user_text, latency_ms)
-
-    return jsonify({
-        "id": f"chatcmpl-{int(time.time() * 1000)}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model_id,
+def stream_reply(reply, model="router"):
+    chunk = {
+        "id": "router-1",
+        "object": "chat.completion.chunk",
         "choices": [{
             "index": 0,
-            "message": {"role": "assistant", "content": answer},
-            "finish_reason": "stop",
-        }],
-        "usage": {
-            "prompt_tokens":     max(1, len(user_text) // 4),
-            "completion_tokens": max(1, len(answer)    // 4),
-            "total_tokens":      max(2, (len(user_text) + len(answer)) // 4),
-        },
-    }), 200
+            "delta": {"role": "assistant", "content": reply},
+            "finish_reason": None
+        }]
+    }
+    yield f"data: {json.dumps(chunk)}\n\n"
+    done = {
+        "id": "router-1",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+        }]
+    }
+    yield f"data: {json.dumps(done)}\n\n"
+    yield "data: [DONE]\n\n"
 
+@app.route("/v1/chat/completions", methods=["POST"])
+@app.route("/chat/completions", methods=["POST"])
+def chat():
+    started = time.monotonic()
+    body = request.json
+    messages = body.get("messages", [])
+    user_message = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+    user_message = extract_text(user_message)
+    route = classify(user_message)
+    print(f"[router] {route}: {user_message[:60]}", flush=True)
+
+    # Track which model actually answered, including the local->cloud
+    # fallback that ask_local performs internally on an empty response.
+    trace = {"fell_back": False}
+    actual_route = "local" if route == "SIMPLE" else "cloud"
+    actual_model = LOCAL_MODEL if route == "SIMPLE" else NVIDIA_MODEL
+
+    try:
+        if route == "SIMPLE":
+            reply = ask_local(messages, _trace=trace)
+            if trace["fell_back"]:
+                actual_route = "cloud"
+                actual_model = NVIDIA_MODEL
+        else:
+            reply = ask_nvidia(messages)
+    except Exception as e:
+        reply = f"Error: {str(e)}"
+
+    latency_ms = int((time.monotonic() - started) * 1000)
+    db_log(actual_route, actual_model, user_message, latency_ms)
+
+    return Response(stream_reply(reply), mimetype="text/event-stream")
 
 if __name__ == "__main__":
-    _db_init()
-    print(
-        f"[router] listening on http://{LISTEN_HOST}:{LISTEN_PORT}  "
-        f"db={DB_PATH}  ollama={OLLAMA_BASE}",
-        flush=True,
-    )
-    app.run(host=LISTEN_HOST, port=LISTEN_PORT, threaded=True, use_reloader=False)
+    db_init()
+    app.run(host="127.0.0.1", port=11435)
