@@ -1,0 +1,36 @@
+# Target path on the Pi: /etc/systemd/system/ai-router.service
+#
+# Runs /home/yelopi/router/router.py as a long-lived service on
+# 127.0.0.1:11435. Replaces whatever ad-hoc nohup/tmux setup the router
+# was launched with previously, so it survives reboots and can be
+# managed with `systemctl restart ai-router`.
+
+[Unit]
+Description=Hybrid AI router (qwen2 classifier -> nemotron-mini / NVIDIA NIM) on port 11435
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=yelopi
+Group=yelopi
+
+EnvironmentFile=-/home/yelopi/router/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=ROUTER_DB_PATH=/home/yelopi/dashboard/requests.db
+
+WorkingDirectory=/home/yelopi/router
+ExecStart=/usr/bin/python3 /home/yelopi/router/router.py
+
+Restart=on-failure
+RestartSec=3s
+
+# Resource caps. Router itself is tiny; cap so a runaway loop cannot OOM Ollama.
+MemoryHigh=128M
+MemoryMax=192M
+Nice=0
+
+[Install]
+WantedBy=multi-user.target

@@ -35,6 +35,20 @@ if [[ "${EUID}" -eq 0 ]]; then
   warn "Running as root. The script uses sudo where needed; running as yelopi is preferred."
 fi
 
+# ---------- 0. apt prereqs (sqlite3 CLI) -----------------------------------
+# Pi OS Lite does not ship the sqlite3 binary by default. We need it to apply
+# schema.sql. python3-flask + python3-requests + python3-dotenv are listed too
+# so a fresh Pi can run the router unit out of the box.
+
+if ! command -v sqlite3 >/dev/null 2>&1; then
+  log "Installing sqlite3 (and python3-flask/-requests/-dotenv if missing)"
+  sudo apt-get update -y
+  sudo apt-get install -y --no-install-recommends \
+    sqlite3 python3-flask python3-requests python3-dotenv
+else
+  log "sqlite3 already installed"
+fi
+
 # ---------- 1. dashboard directory + files --------------------------------
 
 log "Creating ${DASH_DIR}"

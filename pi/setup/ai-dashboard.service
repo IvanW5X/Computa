@@ -10,6 +10,8 @@
 Description=AI metrics dashboard for the hybrid Pi gateway (port 3000)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
 
 [Service]
 Type=simple
@@ -28,8 +30,6 @@ ExecStart=/usr/bin/python3 /home/yelopi/dashboard/server.py
 
 Restart=on-failure
 RestartSec=5s
-StartLimitIntervalSec=60
-StartLimitBurst=10
 
 # Resource caps so the dashboard never competes with Ollama for RAM.
 MemoryHigh=64M
@@ -37,10 +37,13 @@ MemoryMax=96M
 CPUQuota=40%
 Nice=10
 
-# Light filesystem hardening. The DB lives under /home/yelopi/dashboard
-# (read-only access from this service) so we do not need any write paths.
+# Light filesystem hardening. SQLite WAL mode requires the reader to write
+# the .db-shm / .db-wal sidecar files even for "read-only" connections, so
+# we punch a writable hole for the dashboard directory only -- nothing else
+# on the filesystem is writable from this unit.
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=/home/yelopi/dashboard
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectKernelTunables=true
