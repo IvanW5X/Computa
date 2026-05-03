@@ -1,4 +1,14 @@
-# Ignores node_modules/, data/, and .env to prevent secrets and runtime state from being committed.
+# ============================================================
+# .gitignore
+# ============================================================
+# Role: Tier 2 — Orchestration (repository hygiene)
+# Purpose: Prevents secrets and runtime state from being
+#          committed: node_modules/ (npm install artifacts),
+#          venv/ (Python virtualenv), data/ (SQLite memory.db),
+#          and .env (DISCORD_BOT_TOKEN and NVIDIA_API_KEY).
+# Calls:   none (consumed by git itself).
+# Used by: git, on every status/add/commit.
+# ============================================================
 node_modules/
 data/
 .env

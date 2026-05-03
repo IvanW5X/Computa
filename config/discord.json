@@ -1,0 +1,6 @@
+{
+  "channelName": "nemotron-agent",
+  "commandPrefix": "/",
+  "threadMode": true,
+  "autoArchiveMinutes": 60
+}
