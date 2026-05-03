@@ -1,0 +1,139 @@
+// Target path on the Pi: ~/.openclaw/openclaw.json
+//
+// OpenClaw reads this as JSON5 (comments + trailing commas allowed).
+// Strict validation: any unknown key WILL refuse boot. Verified fields below
+// are taken from docs.openclaw.ai/configuration and /gateway/configuration-reference.
+//
+// FIELDS I VERIFIED against the documented schema:
+//   gateway.mode, gateway.port, gateway.bind, gateway.auth.mode,
+//   gateway.auth.password, channels.discord.{enabled,token,dmPolicy,allowFrom},
+//   agents.list[].{id,default,workspace,skills}, agents.defaults.model.primary,
+//   agents.defaults.models, models.providers.<id>, env.vars,
+//   ${ENV_VAR} substitution, secrets.providers, SecretRef shape
+//   {source:"env", provider:"default", id:"VAR"}.
+//
+// FIELDS I COULD NOT INDEPENDENTLY VERIFY (flagged inline below):
+//   1. The exact shape of models.providers.<id> for an OpenAI-compatible local
+//      endpoint. The docs reference it but route the field-by-field map to a
+//      page (config-tools#custom-providers-and-base-urls) I did not fetch.
+//      The shape used here ({type:"openai-compatible", baseUrl, apiKey}) is the
+//      conventional one and matches the SecretRef pattern; if your OpenClaw
+//      build rejects it, run `openclaw config schema | jq .properties.models`
+//      and adjust. Nearest verified alternative if this fails: omit the
+//      provider entry, omit agents.defaults.model.primary, and instead point
+//      every Discord message at the router via a webhook hook
+//      (hooks.mappings — fields verified in the docs).
+//
+//   2. agents.list[].channels — there is doc support for binding agents to
+//      channels via a top-level `bindings` array, not a per-agent field.
+//      I use the top-level `bindings` shape verified in the multi-agent docs.
+{
+  "$schema": "https://docs.openclaw.ai/schema/openclaw.schema.json",
+
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "lan",
+    "auth": {
+      "mode": "password",
+      "password": "${OPENCLAW_GATEWAY_PASSWORD}"
+    },
+    "reload": { "mode": "hybrid", "debounceMs": 300 }
+  },
+
+  "env": {
+    "vars": {
+      "OLLAMA_HOST": "127.0.0.1:11434",
+      "ROUTER_DB_PATH": "/home/pi/dashboard/requests.db"
+    }
+  },
+
+  "secrets": {
+    "providers": {
+      "default": { "source": "env" }
+    }
+  },
+
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "local-router": {
+        "type": "openai-compatible",
+        "baseUrl": "http://127.0.0.1:18800/v1",
+        "apiKey": "router-no-auth"
+      },
+      "nvidia-nim": {
+        "type": "openai-compatible",
+        "baseUrl": "https://integrate.api.nvidia.com/v1",
+        "apiKey": {
+          "source": "env",
+          "provider": "default",
+          "id": "NVIDIA_API_KEY"
+        }
+      }
+    }
+  },
+
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "token": {
+        "source": "env",
+        "provider": "default",
+        "id": "DISCORD_BOT_TOKEN"
+      },
+      "dmPolicy": "pairing",
+      "groups": {
+        "*": { "requireMention": true }
+      }
+    }
+  },
+
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace",
+      "model": {
+        "primary": "local-router/router",
+        "fallbacks": []
+      },
+      "models": {
+        "local-router/router": { "alias": "Router" },
+        "nvidia-nim/nvidia/nemotron-3-super-120b-a12b": { "alias": "Nemotron120B" }
+      },
+      "imageMaxDimensionPx": 800,
+      "skills": ["router"]
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "workspace": "~/.openclaw/workspace",
+        "skills": ["router"]
+      }
+    ]
+  },
+
+  "bindings": [
+    { "agentId": "main", "match": { "channel": "discord" } }
+  ],
+
+  "skills": {
+    "load": {
+      "watch": true,
+      "watchDebounceMs": 250
+    },
+    "entries": {
+      "router": {
+        "enabled": true,
+        "env": {
+          "ROUTER_DB_PATH": "/home/pi/dashboard/requests.db",
+          "OLLAMA_HOST": "127.0.0.1:11434"
+        }
+      }
+    }
+  },
+
+  "logging": {
+    "level": "info"
+  }
+}

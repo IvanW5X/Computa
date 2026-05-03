@@ -1,0 +1,52 @@
+# Target path on the Pi: /etc/systemd/system/ai-dashboard.service
+#
+# Runs the metrics dashboard on port 3000 as the yelopi user, alongside
+# the existing ai-router.service / openclaw-gateway.service. Stdlib-only
+# Python -- no venv, no pip, no npm. Reads the router's shared .env so
+# any router-side variables (NVIDIA_API_KEY, OLLAMA_BASE, ROUTER_DB_PATH)
+# stay in one place.
+
+[Unit]
+Description=AI metrics dashboard for the hybrid Pi gateway (port 3000)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yelopi
+Group=yelopi
+
+# `-` prefix: do not fail to start if the .env is missing or empty.
+EnvironmentFile=-/home/yelopi/router/.env
+
+# Hard defaults so the service still works without the .env file.
+Environment=PYTHONUNBUFFERED=1
+Environment=ROUTER_DB_PATH=/home/yelopi/dashboard/requests.db
+
+WorkingDirectory=/home/yelopi/dashboard
+ExecStart=/usr/bin/python3 /home/yelopi/dashboard/server.py
+
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+# Resource caps so the dashboard never competes with Ollama for RAM.
+MemoryHigh=64M
+MemoryMax=96M
+CPUQuota=40%
+Nice=10
+
+# Light filesystem hardening. The DB lives under /home/yelopi/dashboard
+# (read-only access from this service) so we do not need any write paths.
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

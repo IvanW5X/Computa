@@ -1,0 +1,63 @@
+# Target path on the Pi: /etc/logrotate.d/openclaw-ai
+#
+# This file MUST be owned by root:root, mode 0644. logrotate refuses to
+# load /etc/logrotate.d/* entries that are world-writable.
+#
+# Aggressive rotation: 30 GB microSD with WAL DB + Ollama model files
+# already eats 12+ GB. Logs cannot be allowed to grow unbounded.
+#
+# Notes
+# -----
+#  - systemd-journald is NOT covered here. It is configured separately via
+#    /etc/systemd/journald.conf -- the install script sets:
+#       SystemMaxUse=200M
+#       SystemMaxFileSize=20M
+#    so journald itself stays under a hard cap. Without that, logrotate
+#    can shrink Ollama's stderr file all it wants and journald will still
+#    swell to 4 GB.
+#  - copytruncate is used because Ollama and the router rebind their stdio
+#    to the same file across restarts and do not handle SIGHUP-style log
+#    rotation. copytruncate is slightly racy (a write during the copy can
+#    be lost) but the alternative on a microSD is a binary that will not
+#    re-open the log file.
+#  - notifempty + missingok keeps logrotate quiet on a fresh box where one
+#    or more services have not produced output yet.
+
+/var/log/ollama/*.log /var/log/ollama.log {
+    daily
+    rotate 3
+    maxsize 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0640 pi pi
+    su pi pi
+}
+
+/home/pi/.openclaw/logs/*.log /var/log/openclaw/*.log {
+    daily
+    rotate 3
+    maxsize 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0640 pi pi
+    su pi pi
+}
+
+/home/pi/dashboard/*.log /var/log/computa-router/*.log {
+    daily
+    rotate 3
+    maxsize 20M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0640 pi pi
+    su pi pi
+}

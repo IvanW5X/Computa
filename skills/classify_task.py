@@ -88,10 +88,10 @@ def _normalize(parsed: dict, user_message: str) -> dict:
 
     route = parsed.get("route")
     if route not in ("local", "escalate"):
-        route = "escalate" if score >= 3 else "local"
-    elif route == "escalate" and score < 3:
+        route = "escalate" if score >= 5 else "local"
+    elif route == "escalate" and score < 5:
         route = "local"
-    elif route == "local" and score >= 3:
+    elif route == "local" and score >= 5:
         route = "escalate"
 
     triggered = parsed.get("triggered_criteria")

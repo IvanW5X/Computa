@@ -116,10 +116,10 @@ async function classifyAndRoute(userMessage) {
 
   const score = Number(classification.score) || 0;
   if (classification.route !== 'local' && classification.route !== 'escalate') {
-    classification.route = score >= 3 ? 'escalate' : 'local';
-  } else if (classification.route === 'escalate' && score < 3) {
+    classification.route = score >= 5 ? 'escalate' : 'local';
+  } else if (classification.route === 'escalate' && score < 5) {
     classification.route = 'local';
-  } else if (classification.route === 'local' && score >= 3) {
+  } else if (classification.route === 'local' && score >= 5) {
     classification.route = 'escalate';
   }
 
