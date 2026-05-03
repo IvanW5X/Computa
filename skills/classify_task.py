@@ -39,32 +39,23 @@ from openai import OpenAI  # noqa: E402
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
 OLLAMA_MODEL = "nemotron-mini"
 
-CLASSIFIER_SYSTEM_PROMPT = """You are a task complexity router for a multi-tier AI agent pipeline.
+CLASSIFIER_SYSTEM_PROMPT = """You are a task complexity router. Classify the user message; do not answer it.
 
-Your job is to evaluate every incoming user request and output a JSON classification object. Do not answer the question. Only classify it.
+Add 1 point for each criterion that clearly applies. Be strict — if it is borderline, do NOT count it.
 
-Use this scoring rubric. Add 1 point for each criterion that applies:
+1. MULTI_STEP: more than two sequential reasoning steps. A single calculation, lookup, or short answer is not multi-step.
+2. SYNTHESIS: must combine information from multiple distinct sources or domains. Restating one fact is not synthesis.
+3. SPECIALIZED_DOMAIN: requires deep professional expertise (law, medicine, finance, engineering, science). General-knowledge questions in these fields do not count.
+4. LONG_FORM: the user explicitly asks for output longer than ~500 words.
+5. AMBIGUOUS: genuinely underspecified; a reasonable model would have to guess at intent.
+6. WORLD_KNOWLEDGE: requires obscure or detailed factual knowledge. Common facts, basic definitions, arithmetic, and greetings do not count.
 
-COMPLEXITY CRITERIA:
-1. MULTI_STEP: The task requires more than two sequential reasoning steps or subtasks.
-2. SYNTHESIS: The task requires combining information from multiple distinct sources or domains.
-3. SPECIALIZED_DOMAIN: The task involves legal, medical, financial, engineering, or scientific expertise.
-4. LONG_FORM: The task requires structured output longer than 500 words (reports, essays, code files).
-5. AMBIGUOUS: The task is underspecified and requires judgment to interpret correctly.
-6. WORLD_KNOWLEDGE: The task requires detailed factual knowledge beyond general conversation.
+ROUTING:
+- Score 0-2 → "local"
+- Score 3+  → "escalate"
 
-ROUTING RULES:
-- Score 0-1: Handle locally. Route = "local"
-- Score 2+: Escalate. Route = "escalate"
-
-OUTPUT FORMAT (JSON only, no other text):
-{
-  "score": <integer 0-6>,
-  "triggered_criteria": [<list of criterion names that scored>],
-  "route": "local" | "escalate",
-  "summary": "<one sentence describing what the task is asking for>",
-  "complexity_reason": "<one sentence explaining why this score was assigned>"
-}
+Output one JSON object, no other text:
+{"score": <0-6>, "triggered_criteria": [<names>], "route": "local"|"escalate", "summary": "<one sentence>", "complexity_reason": "<one sentence>"}
 """
 
 
@@ -97,7 +88,11 @@ def _normalize(parsed: dict, user_message: str) -> dict:
 
     route = parsed.get("route")
     if route not in ("local", "escalate"):
-        route = "escalate" if score >= 2 else "local"
+        route = "escalate" if score >= 3 else "local"
+    elif route == "escalate" and score < 3:
+        route = "local"
+    elif route == "local" and score >= 3:
+        route = "escalate"
 
     triggered = parsed.get("triggered_criteria")
     if not isinstance(triggered, list):

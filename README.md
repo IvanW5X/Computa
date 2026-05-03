@@ -1,4 +1,4 @@
-# Nemotron Swarm Agent
+# Computa!
 
 A three-tier agentic Discord bot:
 

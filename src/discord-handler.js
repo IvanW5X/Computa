@@ -64,7 +64,7 @@ function createClient() {
     partials: [Partials.Message, Partials.Channel],
     presence: {
       status: 'online',
-      activities: [{ name: 'Nemotron Swarm', type: 0 }],
+      activities: [{ name: 'COMPUTA!', type: 0 }],
     },
   });
 

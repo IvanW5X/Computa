@@ -1,7 +1,7 @@
 {
   "name": "computa",
   "version": "1.0.0",
-  "description": "Nemotron Swarm Agent — three-tier agentic AI pipeline on Discord",
+  "description": "Nemotron Swarm Agent",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
