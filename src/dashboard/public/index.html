@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Computa</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0f1014;
+    --bg-grad-1: #14161c;
+    --bg-grad-2: #0a0b0f;
+    --panel:     rgba(255,255,255,0.035);
+    --panel-2:   rgba(255,255,255,0.06);
+    --border:    rgba(255,255,255,0.08);
+    --border-2:  rgba(255,255,255,0.14);
+    --fg:        #eef0f4;
+    --muted:     #8a93a4;
+    --dim:       #5b6373;
+
+    /* Brand: tangerine for Computa / savings / "with" */
+    --brand:     #ff7a45;
+    --brand-2:   #ffa07a;
+    --brand-soft:rgba(255,122,69,0.14);
+
+    /* Counter: slate-blue for baseline / "without" — soft, not alarming */
+    --bad:       #7c8aa3;
+    --bad-2:     #a8b5c8;
+    --bad-soft:  rgba(124,138,163,0.16);
+
+    /* Secondary accents */
+    --cool:      #9eb7ff;
+    --cool-soft: rgba(158,183,255,0.14);
+    --neutral:   #b6bdc9;
+    --neut-soft: rgba(182,189,201,0.12);
+  }
+
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background-image:
+      radial-gradient(circle at 12% 0%, rgba(255,122,69,0.08), transparent 50%),
+      radial-gradient(circle at 90% 12%, rgba(158,183,255,0.05), transparent 55%),
+      radial-gradient(circle at 50% 100%, rgba(124,138,163,0.04), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+
+  .hero-num { font-variant-numeric: tabular-nums; letter-spacing: -0.04em; }
+
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+  .pill-local   { background: var(--brand-soft); color: var(--brand-2); }
+  .pill-cloud   { background: var(--cool-soft);  color: var(--cool); }
+  .pill-simple  { background: var(--neut-soft);  color: var(--neutral); }
+  .pill-complex { background: var(--cool-soft);  color: var(--cool); }
+  .pill-baseline{ background: var(--bad-soft);   color: var(--bad-2); }
+
+  table { font-variant-numeric: tabular-nums; }
+
+  .glow-bad   { box-shadow: 0 0 60px -22px rgba(124,138,163,0.6), inset 0 1px 0 rgba(255,255,255,0.04); }
+  .glow-brand { box-shadow: 0 0 60px -18px rgba(255,122,69,0.55), inset 0 1px 0 rgba(255,255,255,0.04); }
+
+  .ring-brand { border-color: rgba(255,122,69,0.35) !important; }
+  .ring-bad   { border-color: rgba(124,138,163,0.30) !important; }
+
+  .text-brand   { color: var(--brand); }
+  .text-brand-2 { color: var(--brand-2); }
+  .text-bad     { color: var(--bad); }
+  .text-bad-2   { color: var(--bad-2); }
+  .text-cool    { color: var(--cool); }
+  .text-fg      { color: var(--fg); }
+  .text-muted   { color: var(--muted); }
+  .text-dim     { color: var(--dim); }
+  .bg-panel     { background: var(--panel); }
+
+  .btn {
+    background: linear-gradient(180deg, var(--brand) 0%, #e35a26 100%);
+    color: #1a0d05;
+    font-weight: 700;
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-size: 13px;
+    letter-spacing: 0.01em;
+    box-shadow: 0 6px 18px -8px rgba(255,122,69,0.7);
+    transition: transform 0.1s ease, box-shadow 0.2s ease;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(255,122,69,0.85); }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .divider { border-bottom: 1px solid var(--border); }
+
+  @keyframes pulse-dot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.85); } }
+  .live-dot { animation: pulse-dot 1.6s ease-in-out infinite; background: var(--brand); box-shadow: 0 0 12px var(--brand); }
+
+  .grad-text {
+    background: linear-gradient(90deg, var(--brand-2), var(--brand) 60%, #ffd0b3);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="px-6 py-4 divider flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <img src="/computa_logo.png" alt="Computa logo" class="h-10 w-auto select-none" draggable="false" />
+    <div class="leading-tight">
+      <p class="text-xs text-muted lowercase">hey,</p>
+      <h1 class="text-xl font-bold tracking-tight grad-text leading-none">computa</h1>
+      <p class="text-xs text-muted mt-1 italic">save me some tokens</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-4">
+    <span class="flex items-center gap-2 text-xs text-muted">
+      <span class="live-dot inline-block w-2 h-2 rounded-full"></span>
+      <span id="lastUpdate">connecting…</span>
+    </span>
+    <button id="burstBtn" class="btn">Run demo burst (20 prompts)</button>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-12 space-y-10">
+
+  <!-- a. Hero animated savings counter -->
+  <section class="text-center">
+    <div class="text-xs uppercase tracking-[0.3em] text-dim mb-3">total saved by routing locally first</div>
+    <div id="heroNum" class="hero-num text-7xl md:text-9xl font-black grad-text">$0.0000</div>
+    <div class="mt-4 text-muted text-sm">
+      <span id="heroPct" class="text-brand-2 font-semibold">0.0%</span> cheaper than sending every prompt to the big model
+      &middot; <span id="heroTokens" class="text-fg">0 tokens</span> not sent to cloud
+    </div>
+  </section>
+
+  <!-- b. Two-column comparison -->
+  <section class="grid md:grid-cols-2 gap-6">
+    <div class="panel ring-bad p-6 glow-bad">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-bad-2">Without Computa</h2>
+        <span class="pill pill-baseline">cloud-only baseline</span>
+      </div>
+      <div class="text-5xl font-bold text-bad hero-num" id="baselineTokens">0</div>
+      <div class="text-muted text-sm mt-1">tokens sent to big model</div>
+      <div class="mt-6 grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <div class="text-dim text-xs uppercase tracking-wider">Cost</div>
+          <div class="text-2xl font-semibold text-bad-2 hero-num mt-1" id="baselineCost">$0.0000</div>
+        </div>
+        <div>
+          <div class="text-dim text-xs uppercase tracking-wider">Per prompt avg</div>
+          <div class="text-2xl font-semibold text-bad-2 hero-num mt-1" id="baselinePerPrompt">0</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel ring-brand p-6 glow-brand">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-brand-2">With Computa</h2>
+        <span class="pill pill-local">local + escalate</span>
+      </div>
+      <div class="text-5xl font-bold text-brand hero-num" id="hybridTokens">0</div>
+      <div class="text-muted text-sm mt-1">tokens actually sent to big model</div>
+      <div class="mt-6 grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <div class="text-dim text-xs uppercase tracking-wider">Cost</div>
+          <div class="text-2xl font-semibold text-brand-2 hero-num mt-1" id="hybridCost">$0.0000</div>
+        </div>
+        <div>
+          <div class="text-dim text-xs uppercase tracking-wider">Per prompt avg</div>
+          <div class="text-2xl font-semibold text-brand-2 hero-num mt-1" id="hybridPerPrompt">0</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Counters row -->
+  <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="panel p-4">
+      <div class="text-xs uppercase text-dim tracking-wider">Total prompts</div>
+      <div class="text-3xl font-bold mt-1 hero-num text-fg" id="totalPrompts">0</div>
+    </div>
+    <div class="panel p-4">
+      <div class="text-xs uppercase text-dim tracking-wider">Answered locally</div>
+      <div class="text-3xl font-bold text-brand mt-1 hero-num" id="simpleCount">0</div>
+    </div>
+    <div class="panel p-4">
+      <div class="text-xs uppercase text-dim tracking-wider">Escalated to cloud</div>
+      <div class="text-3xl font-bold text-cool mt-1 hero-num" id="complexCount">0</div>
+    </div>
+    <div class="panel p-4">
+      <div class="text-xs uppercase text-dim tracking-wider">Tokens saved</div>
+      <div class="text-3xl font-bold text-brand mt-1 hero-num" id="tokensSaved">0</div>
+    </div>
+  </section>
+
+  <!-- Trend chart -->
+  <section class="panel p-6">
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-muted mb-4">Cumulative tokens — baseline vs hybrid</h2>
+    <canvas id="trendChart" height="100"></canvas>
+  </section>
+
+  <!-- Recent calls table -->
+  <section class="panel p-6">
+    <h2 class="text-sm font-semibold uppercase tracking-wider text-muted mb-4">Recent calls</h2>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-xs text-dim uppercase tracking-wider">
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th class="text-left py-2 pr-3">Time</th>
+            <th class="text-left py-2 pr-3">Prompt</th>
+            <th class="text-left py-2 pr-3">Class</th>
+            <th class="text-left py-2 pr-3">Route</th>
+            <th class="text-right py-2 pr-3">Local in/out</th>
+            <th class="text-right py-2 pr-3">Remote in/out</th>
+            <th class="text-right py-2 pl-3">Baseline est.</th>
+          </tr>
+        </thead>
+        <tbody id="recentBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<script>
+const fmt = new Intl.NumberFormat();
+const usd4 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 4 });
+
+const COLORS = {
+  brand: "#ff7a45",
+  brandFill: "rgba(255,122,69,0.16)",
+  bad: "#7c8aa3",
+  badFill: "rgba(124,138,163,0.18)",
+  muted: "#8a93a4",
+  dim: "#5b6373",
+  grid: "rgba(255,255,255,0.06)",
+};
+
+const animState = new Map();
+function animateNumber(el, target, render, ms = 800) {
+  if (!el) return;
+  const key = el.id || el;
+  const from = animState.get(key) ?? 0;
+  if (from === target) {
+    el.textContent = render(target);
+    return;
+  }
+  const start = performance.now();
+  function frame(now) {
+    const t = Math.min(1, (now - start) / ms);
+    const e = 1 - Math.pow(1 - t, 3);
+    const cur = from + (target - from) * e;
+    el.textContent = render(cur);
+    if (t < 1) requestAnimationFrame(frame);
+    else animState.set(key, target);
+  }
+  animState.set(key, from);
+  requestAnimationFrame(frame);
+}
+
+const trendCtx = document.getElementById("trendChart").getContext("2d");
+const trendChart = new Chart(trendCtx, {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "Without Computa (baseline)",
+        data: [], borderColor: COLORS.bad,
+        backgroundColor: COLORS.badFill, fill: true, tension: 0.3, borderWidth: 2,
+        pointRadius: 0,
+      },
+      {
+        label: "With Computa (cloud burn)",
+        data: [], borderColor: COLORS.brand,
+        backgroundColor: COLORS.brandFill, fill: true, tension: 0.3, borderWidth: 2,
+        pointRadius: 0,
+      },
+    ],
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { labels: { color: COLORS.muted } },
+      tooltip: { mode: "index", intersect: false },
+    },
+    scales: {
+      x: { ticks: { color: COLORS.dim }, grid: { color: COLORS.grid } },
+      y: {
+        ticks: { color: COLORS.dim, callback: (v) => fmt.format(v) },
+        grid: { color: COLORS.grid },
+        title: { display: true, text: "cumulative tokens", color: COLORS.dim },
+      },
+    },
+  },
+});
+
+function pillFor(route, classification) {
+  const r = route === "escalated"
+    ? '<span class="pill pill-cloud">cloud</span>'
+    : '<span class="pill pill-local">local</span>';
+  const c = classification === "complex"
+    ? '<span class="pill pill-complex">complex</span>'
+    : '<span class="pill pill-simple">simple</span>';
+  return { r, c };
+}
+
+async function refresh() {
+  let stats, recent;
+  try {
+    [stats, recent] = await Promise.all([
+      fetch("/api/stats").then((r) => r.json()),
+      fetch("/api/recent?n=20").then((r) => r.json()),
+    ]);
+  } catch (e) {
+    document.getElementById("lastUpdate").textContent = "offline";
+    return;
+  }
+  document.getElementById("lastUpdate").textContent = "live · " + new Date().toLocaleTimeString();
+
+  animateNumber(document.getElementById("heroNum"), stats.dollars_saved, (v) => usd4.format(v));
+  animateNumber(document.getElementById("heroPct"), stats.percent_saved, (v) => v.toFixed(1) + "%");
+  animateNumber(document.getElementById("heroTokens"), stats.tokens_saved, (v) => fmt.format(Math.round(v)) + " tokens");
+
+  animateNumber(document.getElementById("baselineTokens"), stats.baseline_total_tokens, (v) => fmt.format(Math.round(v)));
+  animateNumber(document.getElementById("hybridTokens"), stats.hybrid_total_tokens, (v) => fmt.format(Math.round(v)));
+  animateNumber(document.getElementById("baselineCost"), stats.baseline_cost_usd, (v) => usd4.format(v));
+  animateNumber(document.getElementById("hybridCost"), stats.hybrid_cost_usd, (v) => usd4.format(v));
+  const n = Math.max(1, stats.total_prompts);
+  animateNumber(document.getElementById("baselinePerPrompt"), stats.baseline_total_tokens / n, (v) => fmt.format(Math.round(v)) + " tok");
+  animateNumber(document.getElementById("hybridPerPrompt"), stats.hybrid_total_tokens / n, (v) => fmt.format(Math.round(v)) + " tok");
+
+  animateNumber(document.getElementById("totalPrompts"), stats.total_prompts, (v) => fmt.format(Math.round(v)));
+  animateNumber(document.getElementById("simpleCount"), stats.simple_count, (v) => fmt.format(Math.round(v)));
+  animateNumber(document.getElementById("complexCount"), stats.complex_count, (v) => fmt.format(Math.round(v)));
+  animateNumber(document.getElementById("tokensSaved"), stats.tokens_saved, (v) => fmt.format(Math.round(v)));
+
+  const ordered = recent.slice().reverse();
+  const labels = ordered.map((_, i) => "#" + (i + 1));
+  let cumBaseline = 0, cumHybrid = 0;
+  const baseSeries = [], hybSeries = [];
+  for (const r of ordered) {
+    cumBaseline += (r.baseline_tokens_estimate | 0);
+    cumHybrid += (r.remote_tokens_in | 0) + (r.remote_tokens_out | 0);
+    baseSeries.push(cumBaseline);
+    hybSeries.push(cumHybrid);
+  }
+  trendChart.data.labels = labels;
+  trendChart.data.datasets[0].data = baseSeries;
+  trendChart.data.datasets[1].data = hybSeries;
+  trendChart.update("none");
+
+  const tbody = document.getElementById("recentBody");
+  tbody.innerHTML = recent.map((r) => {
+    const ts = new Date(r.timestamp).toLocaleTimeString();
+    const { r: routePill, c: classPill } = pillFor(r.route, r.classification);
+    return `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+      <td class="py-2 pr-3 text-muted whitespace-nowrap">${ts}</td>
+      <td class="py-2 pr-3 max-w-md truncate text-fg" title="${escapeHtml(r.prompt_preview)}">${escapeHtml(r.prompt_preview)}</td>
+      <td class="py-2 pr-3">${classPill}</td>
+      <td class="py-2 pr-3">${routePill}</td>
+      <td class="py-2 pr-3 text-right text-fg">${fmt.format(r.local_tokens_in)} / ${fmt.format(r.local_tokens_out)}</td>
+      <td class="py-2 pr-3 text-right text-fg">${fmt.format(r.remote_tokens_in)} / ${fmt.format(r.remote_tokens_out)}</td>
+      <td class="py-2 pl-3 text-right text-muted">${fmt.format(r.baseline_tokens_estimate)}</td>
+    </tr>`;
+  }).join("");
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+document.getElementById("burstBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("burstBtn");
+  btn.disabled = true;
+  btn.textContent = "Bursting…";
+  try {
+    await fetch("/api/burst");
+  } catch {}
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = "Run demo burst (20 prompts)";
+  }, 4000);
+});
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

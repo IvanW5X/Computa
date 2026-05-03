@@ -1,0 +1,23 @@
+{
+  models: {
+    providers: {
+      ollama: {
+        apiKey: "ollama-local",
+        baseUrl: "http://127.0.0.1:11434",
+        models: [
+          { id: "nemotron-mini:4b", name: "Nemotron Mini 4B" }
+        ]
+      }
+    }
+  },
+  channels: {
+    discord: {
+      enabled: true,
+      token: {
+        source: "env",
+        provider: "default",
+        id: "DISCORD_BOT_TOKEN"
+      }
+    }
+  }
+}

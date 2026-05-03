@@ -1,5 +1,6 @@
 # Ignores node_modules/, data/, and .env to prevent secrets and runtime state from being committed.
 node_modules/
 data/
+logs/
 .env
 venv

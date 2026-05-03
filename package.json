@@ -5,13 +5,15 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "dashboard": "node src/dashboard/server.js"
   },
   "dependencies": {
     "discord.js": "latest",
     "openai": "latest",
     "dotenv": "latest",
     "better-sqlite3": "latest",
-    "node-fetch": "latest"
+    "node-fetch": "latest",
+    "express": "latest"
   }
 }
